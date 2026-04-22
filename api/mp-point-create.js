@@ -17,36 +17,25 @@ export default async function handler(req, res) {
     const amountNumber = Number(req.body?.amount || 0);
 
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
-      return res.status(400).json({
-        error: 'Valor inválido para envio à maquininha.'
-      });
+      return res.status(400).json({ error: 'Valor inválido para envio à maquininha.' });
     }
 
     const externalReference = String(
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
-    // Usa o tipo enviado pelo frontend (debit_card ou credit_card)
-    // Se não enviado, deixa a maquininha decidir (sem forçar tipo)
+    // O MP aceita "credit" ou "debit" — não "credit_card" / "debit_card"
     const paymentMethodId = req.body?.payment_method_id;
-    const paymentType = paymentMethodId === 'debit_card' ? 'debit_card'
-                      : paymentMethodId === 'credit_card' ? 'credit_card'
+    const paymentType = paymentMethodId === 'debit_card'  ? 'debit'
+                      : paymentMethodId === 'credit_card' ? 'credit'
                       : null;
 
-    const paymentObj = {
-      installments: 1,
-    };
-
-    // Só adiciona o type se foi especificado — senão deixa a maquininha mostrar as opções
-    if (paymentType) {
-      paymentObj.type = paymentType;
-    }
+    const paymentObj = { installments: 1 };
+    if (paymentType) paymentObj.type = paymentType;
 
     const payload = {
       amount: Math.round(amountNumber * 100),
-      description: String(
-        req.body?.description || 'Venda Mercado Penharol'
-      ).slice(0, 120),
+      description: String(req.body?.description || 'Venda Mercado Penharol').slice(0, 120),
       payment: paymentObj,
       additional_info: {
         print_on_terminal: true,
@@ -72,16 +61,12 @@ export default async function handler(req, res) {
       const rawMessage = String(data?.message || data?.error || '').toLowerCase();
       if (rawMessage.includes('queued intent')) {
         return res.status(409).json({
-          error: 'Já existe uma cobrança pendente para esta maquininha. Cancele ou aguarde alguns segundos antes de tentar de novo.',
+          error: 'Já existe uma cobrança pendente. Cancele ou aguarde alguns segundos.',
           raw: data
         });
       }
-
       return res.status(response.status).json({
-        error:
-          data?.message ||
-          data?.error ||
-          'Mercado Pago recusou a criação da cobrança.',
+        error: data?.message || data?.error || 'Mercado Pago recusou a criação da cobrança.',
         raw: data
       });
     }
