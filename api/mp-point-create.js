@@ -26,15 +26,28 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
+    // Usa o tipo enviado pelo frontend (debit_card ou credit_card)
+    // Se não enviado, deixa a maquininha decidir (sem forçar tipo)
+    const paymentMethodId = req.body?.payment_method_id;
+    const paymentType = paymentMethodId === 'debit_card' ? 'debit_card'
+                      : paymentMethodId === 'credit_card' ? 'credit_card'
+                      : null;
+
+    const paymentObj = {
+      installments: 1,
+    };
+
+    // Só adiciona o type se foi especificado — senão deixa a maquininha mostrar as opções
+    if (paymentType) {
+      paymentObj.type = paymentType;
+    }
+
     const payload = {
       amount: Math.round(amountNumber * 100),
       description: String(
-        req.body?.description || 'Venda Mini Mercado'
+        req.body?.description || 'Venda Mercado Penharol'
       ).slice(0, 120),
-      payment: {
-        installments: 1,
-        type: 'credit_card'
-      },
+      payment: paymentObj,
       additional_info: {
         print_on_terminal: true,
         ...(externalReference ? { external_reference: externalReference } : {})
