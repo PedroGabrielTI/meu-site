@@ -24,13 +24,18 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
-    // MP aceita: "credit_card", "debit_card", "voucher_card"
     const paymentMethodId = req.body?.payment_method_id;
-    const validTypes = ['credit_card', 'debit_card', 'voucher_card'];
-    const paymentType = validTypes.includes(paymentMethodId) ? paymentMethodId : null;
 
+    // Crédito: envia "credit_card" à vista (installments: 1)
+    // Débito: envia "debit_card" — se der erro, tenta sem type
     const paymentObj = { installments: 1 };
-    if (paymentType) paymentObj.type = paymentType;
+
+    if (paymentMethodId === 'credit_card') {
+      paymentObj.type = 'credit_card';
+    } else if (paymentMethodId === 'debit_card') {
+      paymentObj.type = 'debit_card';
+      paymentObj.installments = 1;
+    }
 
     const payload = {
       amount: Math.round(amountNumber * 100),
@@ -42,19 +47,33 @@ export default async function handler(req, res) {
       }
     };
 
-    const response = await fetch(
+    let response = await fetch(
       `https://api.mercadopago.com/point/integration-api/devices/${encodeURIComponent(deviceId)}/payment-intents`,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       }
     );
 
-    const data = await response.json().catch(() => ({}));
+    let data = await response.json().catch(() => ({}));
+
+    // Se débito deu erro de type, tenta sem o type (maquininha detecta)
+    if (!response.ok && paymentMethodId === 'debit_card') {
+      const errMsg = String(data?.message || '').toLowerCase();
+      if (errMsg.includes('does not match') || errMsg.includes('payment.type')) {
+        const fallbackPayload = { ...payload, payment: { installments: 1 } };
+        response = await fetch(
+          `https://api.mercadopago.com/point/integration-api/devices/${encodeURIComponent(deviceId)}/payment-intents`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(fallbackPayload)
+          }
+        );
+        data = await response.json().catch(() => ({}));
+      }
+    }
 
     if (!response.ok) {
       const rawMessage = String(data?.message || data?.error || '').toLowerCase();
