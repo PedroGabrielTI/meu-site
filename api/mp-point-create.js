@@ -24,67 +24,49 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
-    const paymentMethodId = req.body?.payment_method_id;
-
-    // Crédito: envia "credit_card" à vista (installments: 1)
-    // Débito: envia "debit_card" — se der erro, tenta sem type
-    const paymentObj = { installments: 1 };
-
-    if (paymentMethodId === 'credit_card') {
-      paymentObj.type = 'credit_card';
-    } else if (paymentMethodId === 'debit_card') {
-      paymentObj.type = 'debit_card';
-      paymentObj.installments = 1;
-    }
-
     const payload = {
       amount: Math.round(amountNumber * 100),
-      description: String(req.body?.description || 'Venda Mercado Penharol').slice(0, 120),
-      payment: paymentObj,
+      description: String(
+        req.body?.description || 'Venda Mercado Penharol'
+      ).slice(0, 120),
+      payment: {
+        installments: 1,
+        type: 'credit_card'
+      },
       additional_info: {
         print_on_terminal: true,
         ...(externalReference ? { external_reference: externalReference } : {})
       }
     };
 
-    let response = await fetch(
+    const response = await fetch(
       `https://api.mercadopago.com/point/integration-api/devices/${encodeURIComponent(deviceId)}/payment-intents`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(payload)
       }
     );
 
-    let data = await response.json().catch(() => ({}));
-
-    // Se débito deu erro de type, tenta sem o type (maquininha detecta)
-    if (!response.ok && paymentMethodId === 'debit_card') {
-      const errMsg = String(data?.message || '').toLowerCase();
-      if (errMsg.includes('does not match') || errMsg.includes('payment.type')) {
-        const fallbackPayload = { ...payload, payment: { installments: 1 } };
-        response = await fetch(
-          `https://api.mercadopago.com/point/integration-api/devices/${encodeURIComponent(deviceId)}/payment-intents`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(fallbackPayload)
-          }
-        );
-        data = await response.json().catch(() => ({}));
-      }
-    }
+    const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
       const rawMessage = String(data?.message || data?.error || '').toLowerCase();
       if (rawMessage.includes('queued intent')) {
         return res.status(409).json({
-          error: 'Já existe uma cobrança pendente. Cancele ou aguarde alguns segundos.',
+          error: 'Já existe uma cobrança pendente para esta maquininha. Cancele ou aguarde alguns segundos antes de tentar de novo.',
           raw: data
         });
       }
+
       return res.status(response.status).json({
-        error: data?.message || data?.error || 'Mercado Pago recusou a criação da cobrança.',
+        error:
+          data?.message ||
+          data?.error ||
+          'Mercado Pago recusou a criação da cobrança.',
         raw: data
       });
     }
