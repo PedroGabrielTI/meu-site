@@ -24,11 +24,10 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
-    // O MP aceita "credit" ou "debit" — não "credit_card" / "debit_card"
+    // MP aceita: "credit_card", "debit_card", "voucher_card"
     const paymentMethodId = req.body?.payment_method_id;
-    const paymentType = paymentMethodId === 'debit_card'  ? 'debit'
-                      : paymentMethodId === 'credit_card' ? 'credit'
-                      : null;
+    const validTypes = ['credit_card', 'debit_card', 'voucher_card'];
+    const paymentType = validTypes.includes(paymentMethodId) ? paymentMethodId : null;
 
     const paymentObj = { installments: 1 };
     if (paymentType) paymentObj.type = paymentType;
