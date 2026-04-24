@@ -17,6 +17,10 @@ export default async function handler(req, res) {
     });
 
     const data = await response.json().catch(() => ({}));
+
+    // LOG para debug — aparece nos logs do Vercel
+    console.log('[mp-point-status] state:', data?.state, '| payment.state:', data?.payment?.state, '| status_detail:', data?.status_detail, '| raw:', JSON.stringify(data));
+
     if (!response.ok) {
       return res.status(response.status).json({ error: data?.message || data?.error || 'Mercado Pago não retornou o status da cobrança.', raw: data });
     }
