@@ -11,28 +11,50 @@ export default async function handler(req, res) {
   if (!paymentIntentId) return res.status(400).json({ error: 'payment_intent_id é obrigatório.' });
 
   try {
-    const response = await fetch(`https://api.mercadopago.com/point/integration-api/payment-intents/${encodeURIComponent(paymentIntentId)}`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
+    // 1) Busca status da intent
+    const intentRes = await fetch(
+      `https://api.mercadopago.com/point/integration-api/payment-intents/${encodeURIComponent(paymentIntentId)}`,
+      { method: 'GET', headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const intentData = await intentRes.json().catch(() => ({}));
 
-    const data = await response.json().catch(() => ({}));
+    if (!intentRes.ok) {
+      return res.status(intentRes.status).json({
+        error: intentData?.message || intentData?.error || 'Erro ao consultar intent.',
+        raw: intentData
+      });
+    }
 
-    // LOG para debug — aparece nos logs do Vercel
-    console.log('[mp-point-status] state:', data?.state, '| payment.state:', data?.payment?.state, '| status_detail:', data?.status_detail, '| raw:', JSON.stringify(data));
+    const intentState = intentData?.state || '';
+    const paymentId = intentData?.payment?.id;
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data?.message || data?.error || 'Mercado Pago não retornou o status da cobrança.', raw: data });
+    console.log('[mp-point-status] intent.state:', intentState, '| payment.id:', paymentId);
+
+    // 2) Se FINISHED e tem payment.id, busca o pagamento real para saber se aprovado ou recusado
+    let paymentData = null;
+    if (intentState === 'FINISHED' && paymentId) {
+      const payRes = await fetch(
+        `https://api.mercadopago.com/v1/payments/${paymentId}`,
+        { method: 'GET', headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      paymentData = await payRes.json().catch(() => ({}));
+      console.log('[mp-point-status] payment.status:', paymentData?.status, '| payment.status_detail:', paymentData?.status_detail);
     }
 
     return res.status(200).json({
-      id: data?.id,
-      state: data?.state,
-      status_detail: data?.status_detail || data?.detail || null,
-      amount: data?.amount,
-      description: data?.description,
-      payment: data?.payment || null,
-      raw: data
+      id: intentData?.id,
+      state: intentState,
+      status_detail: paymentData?.status_detail || intentData?.status_detail || null,
+      amount: intentData?.amount,
+      description: intentData?.description,
+      payment: {
+        ...intentData?.payment,
+        // Adiciona status real do pagamento quando disponível
+        state: paymentData?.status || intentData?.payment?.state || null,
+        status_detail: paymentData?.status_detail || null,
+        payment_id: paymentId || null
+      },
+      raw: intentData
     });
   } catch (error) {
     return res.status(500).json({ error: error?.message || 'Erro interno ao consultar status da maquininha.' });
