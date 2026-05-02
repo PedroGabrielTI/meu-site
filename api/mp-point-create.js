@@ -24,15 +24,17 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
-    // Sem "type" fixo — a maquininha pergunta débito ou crédito ao cliente
-    // installments: 1 garante sempre à vista, sem parcelamento
+    // type: credit_card é obrigatório nesta API
+    // installments: 1 garante sempre à vista
+    // A maquininha ainda permite débito dependendo do cartão inserido
     const payload = {
       amount: Math.round(amountNumber * 100),
       description: String(
         req.body?.description || 'Venda Mercado Penharol'
       ).slice(0, 120),
       payment: {
-        installments: 1
+        installments: 1,
+        type: 'credit_card'
       },
       additional_info: {
         print_on_terminal: true,
