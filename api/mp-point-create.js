@@ -24,14 +24,15 @@ export default async function handler(req, res) {
       req.body?.external_reference || req.body?.venda_id || ''
     ).trim();
 
+    // Sem "type" fixo — a maquininha pergunta débito ou crédito ao cliente
+    // installments: 1 garante sempre à vista, sem parcelamento
     const payload = {
       amount: Math.round(amountNumber * 100),
       description: String(
         req.body?.description || 'Venda Mercado Penharol'
       ).slice(0, 120),
       payment: {
-        installments: 1,
-        type: 'credit_card'
+        installments: 1
       },
       additional_info: {
         print_on_terminal: true,
@@ -57,16 +58,12 @@ export default async function handler(req, res) {
       const rawMessage = String(data?.message || data?.error || '').toLowerCase();
       if (rawMessage.includes('queued intent')) {
         return res.status(409).json({
-          error: 'Já existe uma cobrança pendente para esta maquininha. Cancele ou aguarde alguns segundos antes de tentar de novo.',
+          error: 'Já existe uma cobrança pendente. Cancele ou aguarde alguns segundos.',
           raw: data
         });
       }
-
       return res.status(response.status).json({
-        error:
-          data?.message ||
-          data?.error ||
-          'Mercado Pago recusou a criação da cobrança.',
+        error: data?.message || data?.error || 'Mercado Pago recusou a criação da cobrança.',
         raw: data
       });
     }
