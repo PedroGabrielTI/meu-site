@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -15,70 +17,77 @@ export default async function handler(req, res) {
 
   try {
     const amountNumber = Number(req.body?.amount || 0);
-
     if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
       return res.status(400).json({ error: 'Valor inválido para envio à maquininha.' });
     }
 
-    const externalReference = String(
-      req.body?.external_reference || req.body?.venda_id || ''
-    ).trim();
+    const vendaId = req.body?.venda_id || req.body?.external_reference || '';
+    const description = String(req.body?.description || 'Venda Mercado Penharol').slice(0, 120);
 
-    // type: credit_card é obrigatório nesta API
-    // installments: 1 garante sempre à vista
-    // A maquininha ainda permite débito dependendo do cartão inserido
+    // payment_method_id enviado pelo frontend: 'debit_card' ou 'credit_card'
+    const paymentMethodId = req.body?.payment_method_id;
+    const defaultType = paymentMethodId === 'debit_card' ? 'debit_card'
+                      : paymentMethodId === 'credit_card' ? 'credit_card'
+                      : 'credit_card';
+
+    // Nova Orders API — suporta débito e crédito corretamente
     const payload = {
-      amount: Math.round(amountNumber * 100),
-      description: String(
-        req.body?.description || 'Venda Mercado Penharol'
-      ).slice(0, 120),
-      payment: {
-        installments: 1,
-        type: 'credit_card'
+      type: 'point',
+      external_reference: String(vendaId).slice(0, 64),
+      expiration_time: 'PT10M',
+      transactions: {
+        payments: [
+          {
+            amount: amountNumber.toFixed(2)
+          }
+        ]
       },
-      additional_info: {
-        print_on_terminal: true,
-        ...(externalReference ? { external_reference: externalReference } : {})
-      }
+      config: {
+        point: {
+          terminal_id: deviceId,
+          print_on_terminal: 'full_ticket'
+        },
+        payment_method: {
+          default_type: defaultType,
+          default_installments: '1',
+          installments_cost: 'seller'
+        }
+      },
+      description
     };
 
-    const response = await fetch(
-      `https://api.mercadopago.com/point/integration-api/devices/${encodeURIComponent(deviceId)}/payment-intents`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetch('https://api.mercadopago.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': randomUUID()
+      },
+      body: JSON.stringify(payload)
+    });
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const rawMessage = String(data?.message || data?.error || '').toLowerCase();
-      if (rawMessage.includes('queued intent')) {
-        return res.status(409).json({
-          error: 'Já existe uma cobrança pendente. Cancele ou aguarde alguns segundos.',
-          raw: data
-        });
-      }
+      console.error('[mp-point-create-v2] erro MP:', JSON.stringify(data));
       return res.status(response.status).json({
-        error: data?.message || data?.error || 'Mercado Pago recusou a criação da cobrança.',
+        error: data?.message || data?.error || 'Mercado Pago recusou a criação da ordem.',
         raw: data
       });
     }
 
+    console.log('[mp-point-create-v2] ordem criada id=', data?.id, 'payment=', data?.transactions?.payments?.[0]?.id);
+
     return res.status(200).json({
-      id: data?.id || null,
-      state: data?.state || null,
-      detail: data?.status_detail || data?.detail || null,
+      id: data?.id || null,                                          // order id
+      payment_id: data?.transactions?.payments?.[0]?.id || null,    // payment id para status
+      state: data?.status || null,
+      detail: data?.status_detail || null,
       raw: data
     });
   } catch (error) {
     return res.status(500).json({
-      error: error?.message || 'Erro interno ao criar cobrança na maquininha.'
+      error: error?.message || 'Erro interno ao criar ordem na maquininha.'
     });
   }
 }
