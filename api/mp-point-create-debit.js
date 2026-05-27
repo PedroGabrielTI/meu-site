@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       additional_info: {
         print_on_terminal: true,
         ...(externalReference ? { external_reference: externalReference } : {}),
-        preferred_payment_type: String(req.body?.preferred_payment_type || req.body?.payment_method_id || '').trim() || undefined
+        preferred_payment_type: 'debit_card'
       }
     };
 
